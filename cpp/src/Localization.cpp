@@ -31,6 +31,7 @@
 #include "Options.h"
 #include "platform/Log.h"
 #include "value_classes/ValueBitSet.h"
+#include "command_classes/Configuration.h"
 
 using namespace OpenZWave;
 
@@ -173,9 +174,10 @@ void Localization::ReadXML
     if( !pDoc->LoadFile( path.c_str(), TIXML_ENCODING_UTF8 ) )
     {
         delete pDoc;
-        Log::Write( LogLevel_Info, "Unable to load ValueHelp file %s", path.c_str() );
+        Log::Write( LogLevel_Warning, "Unable to load ValueHelp file %s", path.c_str() );
         return;
     }
+    Log::Write( LogLevel_Info, "Loading Localization File %s", path.c_str() );
 
     TiXmlElement const* root = pDoc->RootElement();
     TiXmlElement const* CCElement = root->FirstChildElement();
@@ -193,19 +195,26 @@ void Localization::ReadXML
                 continue;
             }
             uint8 ccID = (uint8)strtol( str, &pStopChar, 10 );
-            TiXmlElement const* LabelElement = CCElement->FirstChildElement();
-            while (LabelElement)
-            {
-                str = LabelElement->Value();
-                if (str && !strcmp( str, "Label" ) )
-                {
-                    ReadXMLLabel(ccID, LabelElement);
-                }
-                if (str && !strcmp( str, "Value" ) )
-                {
-                    ReadXMLValue(ccID, LabelElement);
-                }
-                LabelElement = LabelElement->NextSiblingElement();
+            TiXmlElement const* LangElement = CCElement->FirstChildElement();
+            while (LangElement) {
+            	str = LangElement->Value();
+            	if (str && !strcmp( str, "Lang" ) ) {
+            		TiXmlElement const* LabelElement = LangElement->FirstChildElement();
+					while (LabelElement)
+					{
+						str = LabelElement->Value();
+						if (str && !strcmp( str, "Label" ) )
+						{
+							ReadXMLLabel(ccID, LabelElement, LangElement->Attribute("id"));
+						}
+						if (str && !strcmp( str, "Value" ) )
+						{
+							ReadXMLValue(ccID, LabelElement, LangElement->Attribute("id"));
+						}
+						LabelElement = LabelElement->NextSiblingElement();
+					}
+            	}
+            	LangElement = LangElement->NextSiblingElement();
             }
         }
 
@@ -213,7 +222,7 @@ void Localization::ReadXML
         CCElement = CCElement->NextSiblingElement();
     }
 }
-void Localization::ReadXMLLabel(uint8 ccID, const TiXmlElement *labelElement) {
+void Localization::ReadXMLLabel(uint8 ccID, const TiXmlElement *labelElement, const string Language) {
 
 
     if (m_commandClassLocalizationMap.find(ccID) == m_commandClassLocalizationMap.end()) {
@@ -223,19 +232,17 @@ void Localization::ReadXMLLabel(uint8 ccID, const TiXmlElement *labelElement) {
         Log::Write( LogLevel_Warning, "Localization::ReadXMLLabel: Error in Localization.xml at line %d - Duplicate Entry for CommandClass %d: %s", labelElement->Row(), ccID, labelElement->GetText() );
     }
 
-    char const* str = labelElement->Attribute( "lang" );
-
-    if( !str )
+    if( Language.empty() )
     {
         m_commandClassLocalizationMap[ccID]->AddLabel(labelElement->GetText());
     }
     else
     {
-        m_commandClassLocalizationMap[ccID]->AddLabel(labelElement->GetText(), str);
+        m_commandClassLocalizationMap[ccID]->AddLabel(labelElement->GetText(), Language);
     }
 }
 
-void Localization::ReadXMLValue(uint8 ccID, const TiXmlElement *valueElement) {
+void Localization::ReadXMLValue(uint8 ccID, const TiXmlElement *valueElement, const string Language) {
 
     char const* str = valueElement->Attribute( "index");
     if ( !str )
@@ -259,55 +266,47 @@ void Localization::ReadXMLValue(uint8 ccID, const TiXmlElement *valueElement) {
         str = valueIDElement->Value();
         if (str && !strcmp( str, "Label" ) )
         {
-            ReadXMLVIDLabel(ccID, indexId, pos, valueIDElement);
+            ReadXMLVIDLabel(ccID, indexId, pos, valueIDElement, Language);
         }
         if (str && !strcmp( str, "Help" ) )
         {
-            ReadXMLVIDHelp(ccID, indexId, pos, valueIDElement);
+            ReadXMLVIDHelp(ccID, indexId, pos, valueIDElement, Language);
         }
         valueIDElement = valueIDElement->NextSiblingElement();
     }
 }
 
-void Localization::ReadXMLVIDLabel(uint8 ccID, uint16 indexId, uint32 pos, const TiXmlElement *labelElement) {
+void Localization::ReadXMLVIDLabel(uint8 ccID, uint16 indexId, uint32 pos, const TiXmlElement *labelElement, const string Language) {
 
     uint64 key = GetValueKey(ccID, indexId, pos);
     if (m_valueLocalizationMap.find(key) == m_valueLocalizationMap.end()) {
         m_valueLocalizationMap[key] = new ValueLocalizationEntry(ccID, indexId, pos);
-    } else {
-        Log::Write( LogLevel_Warning, "Localization::ReadXMLVIDLabel: Error in Localization.xml at line %d - Duplicate Entry for ValueID - CC: %d Index: %d Pos: %d", labelElement->Row(), ccID, indexId, pos);
     }
 
-    char const* str = labelElement->Attribute( "lang" );
-
-    if( !str )
+    if( Language.empty() )
     {
         m_valueLocalizationMap[key]->AddLabel(labelElement->GetText());
     }
     else
     {
-        m_valueLocalizationMap[key]->AddLabel(labelElement->GetText(), str);
+        m_valueLocalizationMap[key]->AddLabel(labelElement->GetText(), Language);
     }
 }
 
-void Localization::ReadXMLVIDHelp(uint8 ccID, uint16 indexId, uint32 pos, const TiXmlElement *labelElement) {
+void Localization::ReadXMLVIDHelp(uint8 ccID, uint16 indexId, uint32 pos, const TiXmlElement *labelElement, const string Language) {
 
     uint64 key = GetValueKey(ccID, indexId, pos);
     if (m_valueLocalizationMap.find(key) == m_valueLocalizationMap.end()) {
-        m_valueLocalizationMap[key] = new ValueLocalizationEntry(indexId, pos);
+    	m_valueLocalizationMap[key] = new ValueLocalizationEntry(indexId, pos);
     }
 
-    char const* str = labelElement->Attribute( "lang" );
-    //std::cout << "helptext: " << labelElement->GetText() << std::endl;
-    //std::cout << "key: " << key << std::endl;
-    //std::cout << "entry: " << m_valueLocalizationMap[key]->GetIdx();
-    if( !str )
+    if( Language.empty() )
     {
         m_valueLocalizationMap[key]->AddHelp(labelElement->GetText());
     }
     else
     {
-        m_valueLocalizationMap[key]->AddHelp(labelElement->GetText(), str);
+        m_valueLocalizationMap[key]->AddHelp(labelElement->GetText(), Language);
     }
 }
 
@@ -331,7 +330,8 @@ void Localization::SetupValue
         value->SetHelp(m_valueLocalizationMap[key]->GetHelpText(m_selectedLang));
         value->SetLabel(m_valueLocalizationMap[key]->GetLabelText(m_selectedLang));
     } else {
-        Log::Write( LogLevel_Warning, "Localization::SetupValue: Localization Warning: No Entry for ValueID - CC: %d, Index: %d", value->GetID().GetCommandClassId(), value->GetID().GetIndex());
+    	/* dont warn on Configuration CC */
+    	if (value->GetID().GetCommandClassId() != Configuration::StaticGetCommandClassId()) Log::Write( LogLevel_Warning, "Localization::SetupValue: Localization Warning: No Entry for ValueID - CC: %d, Index: %d", value->GetID().GetCommandClassId(), value->GetID().GetIndex());
     }
     /* if its a bitset we need to set the help/label for each bit entry */
     if (value->GetID().GetType() == ValueID::ValueType_BitSet) {
@@ -343,7 +343,7 @@ void Localization::SetupValue
                 vbs->SetBitHelp(i, m_valueLocalizationMap[key]->GetHelpText(m_selectedLang));
                 vbs->SetBitLabel(i, m_valueLocalizationMap[key]->GetLabelText(m_selectedLang));
             } else {
-                Log::Write( LogLevel_Warning, "Localization Warning: No Entry for ValueID - CC: %d, Index: %d, Pos %d", value->GetID().GetCommandClassId(), value->GetID().GetIndex(), i);
+            	if (value->GetID().GetCommandClassId() != Configuration::StaticGetCommandClassId()) Log::Write( LogLevel_Warning, "Localization Warning: No Entry for ValueID - CC: %d, Index: %d, Pos %d", value->GetID().GetCommandClassId(), value->GetID().GetIndex(), i);
             }
         }
     }
